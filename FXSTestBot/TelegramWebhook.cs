@@ -86,7 +86,7 @@ namespace FXSTestBot
             return new TelegramResponse()
             {
                 ChatId = int.Parse(telegramUserId),
-                Text = $"Welcome"
+                Text = $"Let's begin with some basic questions to recommend the most profitable signals for your type of trading"
             };
 
 
