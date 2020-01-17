@@ -8,13 +8,16 @@ using Microsoft.Azure.WebJobs.Extensions.Http;
 using Microsoft.Azure.WebJobs.Host;
 using Newtonsoft.Json;
 using RestSharp;
+using Telegram.Bot;
+using Telegram.Bot.Types;
 
 namespace FXSTestBot
 {
     public static class TelegramWebhook
     {
         private static TraceWriter logger;
-        
+        private static ITelegramBotClient iTelegramBotClient;
+
 
         [FunctionName("TelegramWebHook")]
         public static async Task<HttpResponseMessage> Run([HttpTrigger(AuthorizationLevel.Function, "get", "post", Route = null)]HttpRequestMessage req, TraceWriter log)
@@ -22,6 +25,10 @@ namespace FXSTestBot
             logger = log;
 
             logger.Info("C# HTTP trigger function processed a request.");
+
+
+            string token = Environment.GetEnvironmentVariable("TelegramToken");
+            iTelegramBotClient = new TelegramBotClient(token);
 
             // Get request body
             var content = req.Content;
@@ -40,24 +47,33 @@ namespace FXSTestBot
                 {
                     var telegramUserId = telegramUpdate.Message.From.Id;
                     var responseMessage = CreateResponseTelegramMessage(telegramUserId, fxstreetUserId);
-                    bool respose = SendMessageToTelegram(responseMessage);
+                    bool respose = await SendMessageToTelegram(responseMessage);
                 }
             }
 
             return req.CreateResponse(HttpStatusCode.OK, JsonConvert.SerializeObject(telegramMessage));
         }
 
-        private static bool SendMessageToTelegram(TelegramResponse telegramResponse)
+        private static async Task<bool> SendMessageToTelegram(TelegramResponse telegramResponse)
         {
-            string token = Environment.GetEnvironmentVariable("TelgramToken");
-            string resource = "sendMessage";
-            RestClient restClient = new RestClient(new Uri($"https://api.telegram.org/{token}/{resource}?chat_id={telegramResponse.ChatId}&text={telegramResponse.Text}"));
-            RestRequest restRequest = new RestRequest($"", DataFormat.Json);           
-            //restRequest.AddJsonBody(telegramResponse);
+            string token = Environment.GetEnvironmentVariable("TelegramToken");
+            var botClient = new TelegramBotClient(token);
 
-            var response = restClient.Post(restRequest);
+            await botClient.SendTextMessageAsync(chatId: telegramResponse.ChatId, text: telegramResponse.Text);
 
-            return response.IsSuccessful;
+            return true;
+
+        }
+
+        private static async Task<bool> SendPoll()
+        {
+            Message pollMessage = await iTelegramBotClient.SendPollAsync(
+                chatId: "@group_or_channel_username",
+                question: "Did you ever hear the tragedy of Darth Plagueis The Wise?"
+                , options: new[] { "Yes for the hundredth time!", "No, who`s that?" });
+
+            return true;
+
         }
 
         private static bool IsStartMessage(string message)
