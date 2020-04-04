@@ -29,7 +29,7 @@ namespace FXSTestBot2
             logger.LogInformation("C# HTTP trigger function processed a request.");
 
 
-            string token = Environment.GetEnvironmentVariable("TelegramToken");
+            string token = "933340696:AAHywoMZNKKlSrMx51KnVGuw9cIhNcdjeVM";
             iTelegramBotClient = new TelegramBotClient(token);
 
             // Get request body
