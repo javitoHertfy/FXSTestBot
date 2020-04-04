@@ -11,6 +11,7 @@ using Microsoft.Azure.WebJobs.Host;
 using System.Net;
 using Telegram.Bot.Types;
 using Microsoft.Extensions.Logging;
+using RestSharp;
 
 namespace FXSTestBot2
 {
@@ -18,6 +19,7 @@ namespace FXSTestBot2
     {
         private static ILogger logger;
         private static ITelegramBotClient iTelegramBotClient;
+        private static string token = "933340696:AAHywoMZNKKlSrMx51KnVGuw9cIhNcdjeVM";
 
         [FunctionName("TelegramWebHook")]
         public static async Task<IActionResult> Run(
@@ -27,9 +29,7 @@ namespace FXSTestBot2
             logger = log;
 
             logger.LogInformation("C# HTTP trigger function processed a request.");
-
-
-            string token = "933340696:AAHywoMZNKKlSrMx51KnVGuw9cIhNcdjeVM";
+            
             iTelegramBotClient = new TelegramBotClient(token);
 
             // Get request body
@@ -41,19 +41,82 @@ namespace FXSTestBot2
             logger.LogInformation($"Received this {telegramMessage}");
 
             var userMessage = telegramUpdate.Message.Text;
+            var telegramUserId = telegramUpdate.Message.From.Id;
 
             if (IsStartMessage(userMessage))
             {
                 Guid fxstreetUserId = ExtractFXStreetUserId(userMessage);
                 if (fxstreetUserId != null)
-                {
-                    var telegramUserId = telegramUpdate.Message.From.Id;
-                    var responseMessage = CreateResponseTelegramMessage(telegramUserId, fxstreetUserId);
+                {                   
+                    var responseMessage = CreateUserResponseTelegramMessage(telegramUserId, fxstreetUserId);
                     bool respose = await SendMessageToTelegram(responseMessage);
                 }
             }
-           return new JsonResult(telegramMessage);
-           // return Ok(JsonConvert.SerializeObject(telegramMessage));
+            if (IsStatsMessage(userMessage))
+            {
+                try
+                {
+                    int? days = ExtractDays(userMessage);
+
+                    if (days.HasValue)
+                    {
+                        var stats = await GetStatsFromApi(days.Value);
+                        var responseMessage = CreateStatResponseTelegramMessage(telegramUserId, stats, days.Value);
+                        bool respose = await SendMessageToTelegram(responseMessage);
+                       
+                    }
+                    else
+                    {
+                        days = 7;
+                        var stats = await GetStatsFromApi(days.Value);
+                        var responseMessage = CreateStatResponseTelegramMessage(telegramUserId, stats, days.Value);
+                        bool respose = await SendMessageToTelegram(responseMessage);
+                    }
+                }
+                catch (Exception)
+                {
+                    return new JsonResult(telegramMessage);
+                }
+
+
+            }
+            return new JsonResult(telegramMessage);          
+        }
+
+        private static async Task<TradeStatResponse> GetStatsFromApi(int days)
+        {
+            var client = new RestClient("https://signalapi.fxstreet.com");            
+
+            var request = new RestRequest($"/api/v1/Stats/summary?serverName=Ctrader-ICMarkets-MarketImpact&days={days}", DataFormat.Json);
+
+            var tradeStatResponse = await client.GetAsync<TradeStatResponse>(request);
+
+            return tradeStatResponse;
+        }
+
+        private static int? ExtractDays(string userMessage)
+        {
+            int? days = null; 
+            try
+            {
+                days = int.Parse(userMessage.Substring(6));
+            }
+            catch (Exception ex)
+            {
+                logger.LogError("Something went wrong parsing the int", ex);
+            }
+
+            return days;
+        }
+
+        private static TelegramResponse CreateStatResponseTelegramMessage(string telegramUserId, TradeStatResponse tradeStats, int days)
+        {
+            return new TelegramResponse()
+            {
+                ChatId = int.Parse(telegramUserId),
+                Text = $"In the last {days} days we have done {tradeStats.NumberOfTrades} trades with a winning ratio {tradeStats.WinRate}%"
+            };
+            
         }
 
         private static async Task<string> StreamToStringAsync(this HttpRequest request)
@@ -64,9 +127,12 @@ namespace FXSTestBot2
             }
         }
 
-        private static async Task<bool> SendMessageToTelegram(TelegramResponse telegramResponse)
+        private static bool IsStatsMessage(string message)
         {
-            string token = Environment.GetEnvironmentVariable("TelegramToken");
+            return message.StartsWith("/stats");
+        }
+        private static async Task<bool> SendMessageToTelegram(TelegramResponse telegramResponse)
+        {          
             var botClient = new TelegramBotClient(token);
 
             await botClient.SendTextMessageAsync(chatId: telegramResponse.ChatId, text: telegramResponse.Text);
@@ -107,7 +173,7 @@ namespace FXSTestBot2
 
         }
 
-        private static TelegramResponse CreateResponseTelegramMessage(string telegramUserId, Guid fxstreetUserId)
+        private static TelegramResponse CreateUserResponseTelegramMessage(string telegramUserId, Guid fxstreetUserId)
         {
             return new TelegramResponse()
             {
@@ -151,6 +217,21 @@ namespace FXSTestBot2
         [JsonProperty("first_name")]
         public string FirstName { get; set; }
         public string UserName { get; set; }
+    }
+
+    public class TradeStatResponse
+    {
+        public TimeSpan AverageDuration { get; set; }
+        public double NumberOfTrades { get; set; }
+        public decimal? NetProfit { get; set; }
+        public decimal WinRate { get; set; }
+        public decimal LossRate { get; set; }
+        public double NumberOfWinningTrades { get; set; }
+        public double NumberOfLosingTrades { get; set; }
+        public decimal GrossProfit { get; set; }
+        public decimal GrossLoss { get; set; }
+        public decimal AverageProfit { get; set; }
+        public decimal AverageLoss { get; set; }
     }
 }
 
